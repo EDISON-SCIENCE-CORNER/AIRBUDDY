@@ -6,6 +6,7 @@
 #include <ESPAsyncWebServer.h>
 #include <LittleFS.h>
 #include <DNSServer.h>
+#include <AHTxx.h>
 
 #define LGFX_ESP32_S3_BOX_V3
 #include <LGFX_AUTODETECT.hpp>
@@ -14,6 +15,9 @@
 static LGFX lcd;
 static LGFX_Sprite canvas(&lcd);
 
+// ---------------- AHT25 Sensor ----------------
+AHTxx aht25(AHTXX_ADDRESS_X38, AHT2x_SENSOR);
+
 // ---------------- Display ----------------
 #define SCREEN_WIDTH  320
 #define SCREEN_HEIGHT 240
@@ -21,10 +25,10 @@ uint8_t currentPage = 0;
 const uint8_t TOTAL_PAGES = 6;
 
 // ---------------- Sensor Values ----------------
-float temperature = 25;
-int humidity = 70;
-int co = 5;
-int no2 = 0;
+float temperature = 0;
+float humidity = 0;
+int co = 5;     // still simulated
+int no2 = 0;    // still simulated
 
 // ---------------- WiFi Config ----------------
 #define TRIGGER_PIN 21
@@ -56,7 +60,6 @@ void drawGauge(int cx,int cy,int r,int t,int val,int maxV,uint32_t col,const cha
 void drawRectGauge(int x,int y,int w,int h,int val,int maxV,uint32_t col,const char* lab,const char* unit);
 
 bool loadConfig();
-bool saveConfig();
 void startConfigMode();
 bool connectToWiFi();
 void sendSensorData();
@@ -68,10 +71,21 @@ void setup() {
   Serial.begin(115200);
   pinMode(TRIGGER_PIN, INPUT_PULLUP);
 
+  Wire.begin();
+
+  // ---- AHT25 init ----
+  if (!aht25.begin()) {
+    Serial.println("AHT25 sensor not detected!");
+    while (1);
+  }
+  Serial.println("AHT25 sensor ready.");
+
+  // ---- Display init ----
   lcd.init();
   lcd.setBrightness(255);
   canvas.createSprite(SCREEN_WIDTH, SCREEN_HEIGHT);
 
+  // ---- File system ----
   if (!LittleFS.begin()) LittleFS.format();
 
   bool triggerActive = digitalRead(TRIGGER_PIN) == HIGH;
@@ -110,13 +124,15 @@ void loop() {
   }
   lastTouch = touchNow;
 
-  // ---------- Fake sensor update every 2s ----------
+  // ---------- Read REAL sensor every 2s ----------
   if (millis() - lastSensorUpdate > 2000) {
     lastSensorUpdate = millis();
 
-    temperature = random(180, 281) / 10.0;
-    humidity = random(30, 71);
-    co = random(0, 11);
+    temperature = aht25.readTemperature();
+    humidity    = aht25.readHumidity();
+
+    // still simulated gases
+    co  = random(0, 11);
     no2 = random(0, 51);
 
     drawPage(currentPage);
@@ -154,7 +170,7 @@ void drawPage(uint8_t page) {
     case 1:
       canvas.setTextColor(TFT_CYAN);
       canvas.drawString("HUMIDITY",160,100);
-      canvas.drawString(String(humidity)+" %",160,150);
+      canvas.drawString(String(humidity,0)+" %",160,150);
       break;
 
     case 2:
